@@ -8,6 +8,35 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
+      - name: "Check out repository code (Repo: ${{ github.repository }}, Branch: ${{ github.ref }})"
+        uses: actions/checkout@v2
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v2
+        with:
+          java-version: '8'
+          distribution: 'adopt'
+
+      - name: Restore any previous Maven local repository from GitHub Actions cache
+        uses: actions/cache@v2
+        with:
+          # Maven cache files are stored in `~/.m2` on Linux
+          # This Action should be performed *after* code checkout and java setup
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+          #path: ~/.m2/repository
+         # key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          #restore-keys: |
+           # ${{ runner.os }}-m2-
+           
+      - name: Build and analyze
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: mvn -B verify
+        
+      - name: checkout java 11
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
