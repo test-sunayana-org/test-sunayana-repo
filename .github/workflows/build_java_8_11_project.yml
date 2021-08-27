@@ -5,8 +5,6 @@ name: Build Java Project with 8 and analyze using Maven 11
 
 on:
   push:
-    branches:
-      - sv_add_sonar_github_workflow
 #  push:
 #    branches: [ $default-branch ]
 #  pull_request:
