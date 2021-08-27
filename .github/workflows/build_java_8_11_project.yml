@@ -1,0 +1,114 @@
+# This workflow will build a Java project with Maven
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
+
+name: Build Java Project using Maven
+
+on:
+  push:
+    branches:
+      - sv_add_sonar_github_workflow
+#  push:
+#    branches: [ $default-branch ]
+#  pull_request:
+#    branches: [ $default-branch ]
+
+jobs:
+  Build_And_Test:
+
+    name: "Build, Test and Analyze ${{ github.repository }} (Branch: ${{ github.ref }})"
+    runs-on: ubuntu-latest
+
+    # This reduces the permissions of the automatic GitHub Auth Token
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: "Check out repository code (Repo: ${{ github.repository }}, Branch: ${{ github.ref }})"
+        uses: actions/checkout@v2
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v2
+        with:
+          java-version: '8'
+          distribution: 'adopt'
+
+      - name: Restore any previous Maven local repository from GitHub Actions cache
+        uses: actions/cache@v2
+        with:
+          # Maven cache files are stored in `~/.m2` on Linux
+          # This Action should be performed *after* code checkout and java setup
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # If a custom Maven settings.xml exists in this repo, copy it to home folder to enable it, but don't fail if it isn't present.
+      #
+      # Maven settings can be custom per-repo if needed (eg use a custom mirror), but the usual CollectionsManager
+      # setting file simply adds a reference to the internal GitHub Packages Maven Repository to let Maven
+      # read CM internal projects (using the ACTIONS_RO_* Secrets for auth).
+      #
+      # ACTIONS_RO_* are GitHub Secrets stored globally in the CollectionsManager account, and will
+      # allow this job to Read:Packages in other private repos hosted in this org.
+      # NB: An Org Admin must (one-time) configure the permissions on each Secret, to allow Actions in this Repo to read the Secret values
+      #
+      # It would also be nice if there was an easy native `if file_exists()` test in Actions to use here...
+
+      - name: Configure Maven Custom Settings (Optional Step)
+        run: (cp "${SOURCE_PATH}" "${HOME}/.m2/settings.xml" && echo "${MSG_IF_FOUND}") || echo "${MSG_IF_MISSING}"
+        env:
+          SOURCE_PATH: ${{ github.workspace }}/.github/resources/maven_settings.xml
+          MSG_IF_FOUND: Custom Maven Setting file copied successfully
+          MSG_IF_MISSING: Custom Maven Setting file not found, skipping this step
+
+      ## Project-specific Compile & Test Steps below
+
+      # Although this could be achieved with a single Maven command, we split it into
+      # separate phases so that if an error occurs we can look at the Step Name for quick guidance.
+      # We may also want to add extra Maven phases in, eg a Verify phase with a specific verification Profile
+
+      - name: Maven Execution -- Perform Initial Compiliation
+        run: mvn --batch-mode compile --file pom.xml
+        env:
+          ACTIONS_RO_PACKAGES_USERNAME: ${{ secrets.ACTIONS_RO_PACKAGES_USERNAME }}
+          ACTIONS_RO_PACKAGES_TOKEN: ${{ secrets.ACTIONS_RO_PACKAGES_TOKEN }}
+
+      - name: Maven Execution -- Perform Code Tests
+        run: mvn --batch-mode test --file pom.xml
+        env:
+          ACTIONS_RO_PACKAGES_USERNAME: ${{ secrets.ACTIONS_RO_PACKAGES_USERNAME }}
+          ACTIONS_RO_PACKAGES_TOKEN: ${{ secrets.ACTIONS_RO_PACKAGES_TOKEN }}
+        
+      - name: Maven Execution -- Perform Build of Final JAR Package
+        run: mvn --batch-mode package --file pom.xml
+        env:
+          ACTIONS_RO_PACKAGES_USERNAME: ${{ secrets.ACTIONS_RO_PACKAGES_USERNAME }}
+          ACTIONS_RO_PACKAGES_TOKEN: ${{ secrets.ACTIONS_RO_PACKAGES_TOKEN }}
+      # We need to build with Java 8 and then sonar analyze with java 11. So download java 11 for sonar analysis
+      - name: Download Java 11 for sonar analysis
+        uses: actions/checkout@v2
+        with:
+            fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - name: Set up JDK 11
+        uses: actions/setup-java@v1
+        with:
+            java-version: 11
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v1
+        with:
+            path: ~/.sonar/cache
+            key: ${{ runner.os }}-sonar
+            restore-keys: ${{ runner.os }}-sonar
+      - name: Cache Maven packages
+        uses: actions/cache@v1
+        with:
+            path: ~/.m2
+            key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+            restore-keys: ${{ runner.os }}-m2
+      - name: Sonar analyze
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=test-sunayana-org_test-sunayana-repo -Dsonar.java.binaries=target
+    
